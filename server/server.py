@@ -642,7 +642,10 @@ def load_jobs():
         except Exception:
             continue
         if job.state == "processing":
-            job.update(state="failed", stage="Unterbrochen", error="Server wurde während der Verarbeitung beendet. Neu starten möglich.")
+            # Server wurde mitten im Rendern beendet -> automatisch neu einreihen
+            job.warn("Server wurde neu gestartet – Rendern automatisch fortgesetzt")
+            job.update(state="queued", stage="In Warteschlange", progress=0.0, eta=None)
+            log(f"[{job.id}] unterbrochen – wird fortgesetzt")
         jobs[job.id] = job
     for job in sorted((j for j in jobs.values() if j.state == "queued"), key=lambda j: j.started or j.created):
         work_queue.put(job)
