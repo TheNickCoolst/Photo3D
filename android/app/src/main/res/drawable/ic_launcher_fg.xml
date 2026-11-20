@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Isometric cube on a 108dp canvas (safe zone 66dp centered) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- top face -->
+    <path android:fillColor="#FF8AB4F8" android:pathData="M54,30 L76,42 L54,54 L32,42 Z" />
+    <!-- left face -->
+    <path android:fillColor="#FF4F7FD9" android:pathData="M32,42 L54,54 L54,78 L32,66 Z" />
+    <!-- right face -->
+    <path android:fillColor="#FF2D5BB5" android:pathData="M76,42 L76,66 L54,78 L54,54 Z" />
+    <!-- edges -->
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6" android:strokeLineJoin="round"
+        android:pathData="M54,30 L76,42 L76,66 L54,78 L32,66 L32,42 Z M32,42 L54,54 L76,42 M54,54 L54,78" />
+</vector>

@@ -1,0 +1,15 @@
+# Build-Ausgaben
+*.apk
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/.kotlin/
+server/photogrammetry/.build/
+server/photogrammetry/.swiftpm/
+# Laufzeitdaten / Logs
+server/data/
+server/server.log
+__pycache__/
+.DS_Store
