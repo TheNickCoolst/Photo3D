@@ -631,7 +631,14 @@ def main():
     load_jobs()
     threading.Thread(target=worker, daemon=True).start()
 
-    srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
+    try:
+        srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
+    except OSError as e:
+        if e.errno == 48:  # EADDRINUSE
+            sys.exit(f"Port {args.port} ist schon belegt – läuft der Photo3D-Server bereits (z. B. per Autostart)?\n"
+                     f"Prüfen:   lsof -nP -iTCP:{args.port} -sTCP:LISTEN\n"
+                     f"Anderer Port:   ./start.sh --port 8766   (in der App dann IP:8766 eingeben)")
+        raise
     srv.daemon_threads = True
     name = args.name or computer_name()
     bonjour = None
