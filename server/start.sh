@@ -1,6 +1,9 @@
 #!/bin/zsh
 # Startet den Photo3D Render-Server (baut/aktualisiert vorher das Object-Capture-Tool).
 cd "$(dirname "$0")"
-(cd photogrammetry && swift build -c release 2>&1 | grep -E "error|Build complete" ) || exit 1
-[[ -x photogrammetry/.build/release/photogrammetry ]] || { echo "Build fehlgeschlagen"; exit 1; }
+if ! out=$(cd photogrammetry && swift build -c release 2>&1); then
+  echo "$out" | tail -20
+  echo "Swift-Build fehlgeschlagen (Xcode Command Line Tools installiert?)"
+  exit 1
+fi
 exec python3 server.py "$@"
