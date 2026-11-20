@@ -179,7 +179,11 @@ def prepare_images(job):
             return 0
         src = os.path.join(job.input_dir, f)
         dur = video_duration(src)
-        fps = min(max(frames_per_video / dur, 0.2), 10.0) if dur > 0 else 2.0
+        if dur > 0:
+            fps = min(max(frames_per_video / dur, 1.0), 10.0)   # min. 1 Bild/s für genug Überlappung
+            fps = min(fps, max(400.0 / dur, 0.2))                # max. ~400 Bilder pro Video
+        else:
+            fps = 2.0
         job.update(stage=f"Extrahiere Frames aus Video {vi + 1}/{len(videos)}",
                    progress=0.02 + 0.08 * vi / max(len(videos), 1))
         pattern = os.path.join(job.images_dir, f"v{vi:02d}_%05d.jpg")
@@ -204,21 +208,17 @@ def make_thumb(job):
     run(["sips", "-s", "format", "jpeg", "-Z", "480", src, "--out", thumb])
 
 
-def reconstruct(job, image_count):
-    opts = job.options
-    detail = opts.get("detail", "medium")
-    if detail not in DETAILS:
-        detail = "medium"
-    ordering = opts.get("ordering", "auto")
-    if ordering == "auto":
-        ordering = "sequential" if job.videos > 0 and job.images == 0 else "unordered"
-    cmd = [TOOL, job.images_dir, job.output_dir, "--detail", detail, "--ordering", ordering,
-           "--sensitivity", "high" if opts.get("highSensitivity") else "normal"]
-    if opts.get("masking") is False:
-        cmd.append("--no-masking")
-    log(f"[{job.id}] reconstruct {image_count} images:", " ".join(cmd[3:]))
-    job.update(stage="Rekonstruiere 3D-Modell", progress=0.1, eta=None)
-    errlog = open(os.path.join(job.dir, "photogrammetry.log"), "w")
+FAIL_HINT = ("Object Capture konnte aus den Bildern kein Modell bilden. Meist zu wenig Überlappung oder Struktur: "
+             "mehr Fotos rundum, Video langsamer filmen, gleichmäßiges Licht oder „Hohe Empfindlichkeit“ probieren.")
+
+
+def run_tool(job, cmd, attempt_label):
+    """Runs the photogrammetry tool once. Returns (ok, error_message)."""
+    log(f"[{job.id}] reconstruct{attempt_label}:", " ".join(cmd[3:]))
+    if os.path.isdir(job.output_dir):
+        shutil.rmtree(job.output_dir)
+    job.update(stage="Rekonstruiere 3D-Modell" + attempt_label, progress=0.1, eta=None)
+    errlog = open(os.path.join(job.dir, "photogrammetry.log"), "a")
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errlog, text=True, bufsize=1)
     job.proc = p
     error = None
@@ -241,19 +241,54 @@ def reconstruct(job, image_count):
             job.warn(ev.get("message", ""))
         elif kind == "error":
             error = ev.get("message", "Fehler")
+            errlog.write(line + "\n")
         if time.time() - last_save > 2:
             job.save()
             last_save = time.time()
     p.wait()
     job.proc = None
     errlog.close()
-    with open(errlog.name, errors="replace") as f:
-        err = f.read()
-    if job.cancel_requested:
-        return False
-    if p.returncode != 0 or not job.outputs()["usdz"]:
-        raise RuntimeError(error or (err.strip()[-300:] if err else "Rekonstruktion fehlgeschlagen"))
-    return True
+    out = job.outputs()
+    ok = p.returncode == 0 and (out["usdz"] or out["obj"])
+    return ok, error
+
+
+def reconstruct(job, image_count):
+    opts = job.options
+    detail = opts.get("detail", "medium")
+    if detail not in DETAILS:
+        detail = "medium"
+    ordering = opts.get("ordering", "auto")
+    if ordering == "auto":
+        ordering = "sequential" if job.videos > 0 and job.images == 0 else "unordered"
+    masking = opts.get("masking") is not False
+    sensitivity = "high" if opts.get("highSensitivity") else "normal"
+    # Object Capture kann "raw" nicht als USDZ ausgeben -> nur OBJ, USDZ/GLB macht danach Blender
+    outputs = "obj" if detail == "raw" else "both"
+
+    other = "unordered" if ordering == "sequential" else "sequential"
+    attempts = [(ordering, masking), (other, masking)]
+    if masking:
+        attempts.append((ordering, False))
+    for i, (ordr, mask) in enumerate(attempts):
+        if job.cancel_requested:
+            return False
+        cmd = [TOOL, job.images_dir, job.output_dir, "--detail", detail, "--ordering", ordr,
+               "--sensitivity", sensitivity, "--outputs", outputs]
+        if not mask:
+            cmd.append("--no-masking")
+        label = "" if i == 0 else f" (Versuch {i + 1})"
+        ok, error = run_tool(job, cmd, label)
+        if job.cancel_requested:
+            return False
+        if ok:
+            if i > 0:
+                job.warn("Erster Versuch fehlgeschlagen – geklappt mit "
+                         + ("sortierter" if ordr == "sequential" else "unsortierter") + " Bildreihenfolge"
+                         + ("" if mask else " ohne Hintergrund-Entfernung"))
+            return True
+        log(f"[{job.id}] attempt {i + 1} failed: {error}")
+    raise RuntimeError(FAIL_HINT)
 
 
 def convert_glb(job):
@@ -263,8 +298,11 @@ def convert_glb(job):
         job.warn("Blender nicht gefunden – kein GLB erzeugt")
         return
     job.update(stage="Konvertiere nach GLB", progress=0.96, eta=None)
-    code, out = run([blender, "-b", "--factory-startup", "--python", CONVERTER, "--",
-                     obj_dir, os.path.join(job.output_dir, "model.glb")], job)
+    cmd = [blender, "-b", "--factory-startup", "--python", CONVERTER, "--",
+           obj_dir, os.path.join(job.output_dir, "model.glb")]
+    if not job.outputs()["usdz"]:
+        cmd.append(os.path.join(job.output_dir, "model.usdz"))
+    code, out = run(cmd, job)
     if code != 0 or "GLB_OK" not in out:
         log(f"[{job.id}] blender failed:", out[-800:])
         job.warn("GLB-Konvertierung fehlgeschlagen")
@@ -317,6 +355,16 @@ def queue_position(job):
 
 
 # ---------------------------------------------------------------- http
+
+class QuietServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError, TimeoutError)):
+            return  # Handy hat Verbindung geschlossen – normal
+        super().handle_error(request, client_address)
+
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -632,7 +680,7 @@ def main():
     threading.Thread(target=worker, daemon=True).start()
 
     try:
-        srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
+        srv = QuietServer(("0.0.0.0", args.port), Handler)
     except OSError as e:
         if e.errno == 48:  # EADDRINUSE
             sys.exit(f"Port {args.port} ist schon belegt – läuft der Photo3D-Server bereits (z. B. per Autostart)?\n"

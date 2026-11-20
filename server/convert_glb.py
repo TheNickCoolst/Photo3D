@@ -1,5 +1,5 @@
-# Blender headless: OBJ folder -> GLB
-# blender -b --factory-startup --python convert_glb.py -- <objDir> <out.glb>
+# Blender headless: OBJ folder -> GLB (+ optional USDZ)
+# blender -b --factory-startup --python convert_glb.py -- <objDir> <out.glb> [out.usdz]
 import sys, os, glob
 import bpy
 
@@ -25,3 +25,10 @@ try:
 except TypeError:
     bpy.ops.export_scene.gltf(**kw)
 print("GLB_OK", out_path)
+
+if len(argv) > 2:
+    try:
+        bpy.ops.wm.usd_export(filepath=argv[2])
+        print("USDZ_OK", argv[2])
+    except Exception as e:
+        print("USDZ_FAIL", e)

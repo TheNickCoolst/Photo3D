@@ -28,6 +28,7 @@ let inputURL = URL(fileURLWithPath: args.removeFirst(), isDirectory: true)
 let outputURL = URL(fileURLWithPath: args.removeFirst(), isDirectory: true)
 
 var detail: PhotogrammetrySession.Request.Detail = .medium
+var outputs = "both"   // usdz | obj | both
 var config = PhotogrammetrySession.Configuration()
 config.isObjectMaskingEnabled = true
 
@@ -46,6 +47,8 @@ while !args.isEmpty {
         config.sampleOrdering = (args.isEmpty ? "" : args.removeFirst()) == "sequential" ? .sequential : .unordered
     case "--sensitivity":
         config.featureSensitivity = (args.isEmpty ? "" : args.removeFirst()) == "high" ? .high : .normal
+    case "--outputs":
+        outputs = args.isEmpty ? "both" : args.removeFirst()
     case "--no-masking":
         config.isObjectMaskingEnabled = false
     default:
@@ -119,10 +122,10 @@ let task = Task {
 }
 
 do {
-    try session.process(requests: [
-        .modelFile(url: usdzURL, detail: detail),
-        .modelFile(url: objDir, detail: detail),
-    ])
+    var requests: [PhotogrammetrySession.Request] = []
+    if outputs != "obj" { requests.append(.modelFile(url: usdzURL, detail: detail)) }
+    if outputs != "usdz" { requests.append(.modelFile(url: objDir, detail: detail)) }
+    try session.process(requests: requests)
 } catch {
     emit(["event": "error", "message": "Verarbeitung konnte nicht starten: \(error)"])
     exit(1)

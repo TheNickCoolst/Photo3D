@@ -1,8 +1,6 @@
 #!/bin/zsh
-# Startet den Photo3D Render-Server (baut das Object-Capture-Tool beim ersten Mal).
+# Startet den Photo3D Render-Server (baut/aktualisiert vorher das Object-Capture-Tool).
 cd "$(dirname "$0")"
-if [[ ! -x photogrammetry/.build/release/photogrammetry ]]; then
-  echo "Baue photogrammetry-Tool ..."
-  (cd photogrammetry && swift build -c release) || exit 1
-fi
+(cd photogrammetry && swift build -c release 2>&1 | grep -E "error|Build complete" ) || exit 1
+[[ -x photogrammetry/.build/release/photogrammetry ]] || { echo "Build fehlgeschlagen"; exit 1; }
 exec python3 server.py "$@"
